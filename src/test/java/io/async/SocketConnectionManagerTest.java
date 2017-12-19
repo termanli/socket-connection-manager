@@ -77,7 +77,7 @@ public class SocketConnectionManagerTest {
             }
         });
         ArrayList<AsynchronousTestTask> tasks = new ArrayList<>();
-        for (int i = 0; i < 100000; i++) {
+        for (int i = 0; i < 10000; i++) {
             if (Thread.currentThread().isInterrupted()) {
                 break;
             }
@@ -91,7 +91,7 @@ public class SocketConnectionManagerTest {
         }
         System.out.println("task publish complete");
         int current_count = 0;
-        while (count.taskCount < 100000) {
+        while (count.taskCount < 10000) {
             if(Thread.currentThread().isInterrupted()){
                 break;
             }
@@ -141,7 +141,7 @@ public class SocketConnectionManagerTest {
         });
         mgr = new SocketConnectionManager(ioPool, callBackPool,new Properties(){{
             setProperty("READ_TIMEOUT","10000");
-            setProperty("CONCURRENT_CONNECTION_COUNT","300");
+            setProperty("CONCURRENT_CONNECTION_COUNT","100");
         }});
         return mgr;
     }
