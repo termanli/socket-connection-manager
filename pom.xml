@@ -6,7 +6,7 @@
 
     <groupId>io.async</groupId>
     <artifactId>socket-connection-manager</artifactId>
-    <version>1.0</version>
+    <version>1.0.0.DYNAMIC-SNAPSHOT</version>
     <dependencies>
         <dependency>
             <groupId>com.jcraft</groupId>
@@ -49,5 +49,11 @@
             </plugin>
         </plugins>
     </build>
-
+    <distributionManagement>
+        <repository>
+            <id>clojars</id>
+            <name>Clojars repository</name>
+            <url>https://clojars.org/repo</url>
+        </repository>
+    </distributionManagement>
 </project>
