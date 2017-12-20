@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 echo $test_env1
+echo TRAVIS_JOB_ID=$TRAVIS_JOB_ID
 mvn install -DskipTests=true -B -V
 mvn cobertura:cobertura
