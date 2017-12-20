@@ -1,6 +1,9 @@
 # socket-connection-manager
 Connect socket using java nio2 api
-![alternate text](https://travis-ci.org/termanli/socket-connection-manager.svg?branch=master)
+![alternate text](https://travis-ci.org/termanli/socket-connection-manager.svg?branch=master) 
+[![codecov](https://codecov.io/gh/termanli/socket-connection-manager/branch/master/graph/badge.svg)](https://codecov.io/gh/termanli/socket-connection-manager)
+
+
 
 ##Getting Start
 
