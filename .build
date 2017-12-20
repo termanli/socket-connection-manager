@@ -6,4 +6,4 @@ sed -i -e 's/${password}/'$CJ_PASSWORD'/' setting.xml
 sed -i 's/DYNAMIC-SNAPSHOT/'$TRAVIS_JOB_NUMBER'/' pom.xml
 mvn install -DskipTests=true -B -V
 mvn cobertura:cobertura
-mvn deploy --settings setting.xml
+mvn deploy -DskipTests=true --settings setting.xml
