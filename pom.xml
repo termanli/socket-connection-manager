@@ -9,11 +9,6 @@
     <version>1.0.0.DYNAMIC-SNAPSHOT</version>
     <dependencies>
         <dependency>
-            <groupId>com.jcraft</groupId>
-            <artifactId>jsch</artifactId>
-            <version>0.1.53</version>
-        </dependency>
-        <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <version>4.8.2</version>
