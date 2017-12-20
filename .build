@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+echo $test_env1
+mvn install -DskipTests=true -B -V
+mvn cobertura:cobertura
