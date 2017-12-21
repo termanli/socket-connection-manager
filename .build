@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-echo $test_env1
-echo TRAVIS_JOB_NUMBER=$TRAVIS_JOB_NUMBER
 sed -i -e 's/${username}/'$CJ_USERNAME'/' setting.xml
 sed -i -e 's/${password}/'$CJ_PASSWORD'/' setting.xml
 sed -i 's/DYNAMIC-SNAPSHOT/'$TRAVIS_JOB_NUMBER'/' pom.xml
-mvn install -DskipTests=true -B -V
 mvn cobertura:cobertura
-mvn deploy -DskipTests=true --settings setting.xml
+if [ $? -eq 0 ]
+then
+    mvn deploy -DskipTests=true --settings setting.xml
+else
+    echo "Test failed"
+    exit 1
+fi
