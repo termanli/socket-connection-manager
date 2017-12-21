@@ -55,24 +55,37 @@ public class Channel {
     }
 
     public void write(int value) {
+        byte[] b={(byte) value};
+        write(b);
     }
 
     ;
 
-    public void write(int value, Function<Void, Void> onComplete, Consumer<Throwable> onFailure) {
+    public void write(int value, Consumer<Integer> onComplete, Consumer<Throwable> onFailure) {
+        byte[] buffer={(byte)value};
+        write(buffer,onComplete,onFailure);
     }
 
     public void write(byte[] buffer, int off, int length) {
+        SocketConnectionManager.WriteGuarder guarder =scm.write(this,buffer,off,length);
+        if(guarder.isFinished(scm.getWriteTimeOut()*10)){
+            if (guarder.isWriteFailed()) {
+                throw new AsyncIOException("Read Failed", guarder.getWriteException());
+            }
+        }else{
+            throw new AsyncIOException("write timeout");
+        }
     }
 
-    public void write(byte[] buffer, int off, int length, Function<Void, Void> onComplete, Consumer<Throwable> onFailure) {
+    public void write(byte[] buffer, int off, int length, Consumer<Integer> onComplete, Consumer<Throwable> onFailure) {
+        scm.write(this,buffer,off,length,onComplete,onFailure);
     }
 
     public void write(byte[] buffer) {
         write(buffer, 0, buffer.length);
     }
 
-    public void write(byte[] buffer, Function<Void, Void> onComplete, Consumer<Throwable> onFailure) {
+    public void write(byte[] buffer, Consumer<Integer> onComplete, Consumer<Throwable> onFailure) {
         write(buffer, 0, buffer.length, onComplete, onFailure);
     }
 

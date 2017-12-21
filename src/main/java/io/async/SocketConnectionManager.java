@@ -16,6 +16,7 @@ import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.IntConsumer;
 
 /**
@@ -45,6 +46,7 @@ public class SocketConnectionManager implements Runnable {
     private int readTaskQueueSize;
     private int concurrentConnectionCount;
     private Thread thread;
+    private int writeTimeOut;
 
     public SocketConnectionManager(ExecutorService ioThreadPool, ExecutorService callBackThreadPool) throws IOException {
         this(ioThreadPool, callBackThreadPool, new Properties());
@@ -298,6 +300,25 @@ public class SocketConnectionManager implements Runnable {
         return wrapper.commitRead(result, off, length, onSuccess, onFail);
     }
 
+    public WriteGuarder write(Channel channel, byte[] buffer, int off, int length) {
+        AsynchronousSocketChannelWrapper wrapper=getWrapper(channel);
+        WriteGuarder guarder=new WriteGuarder();
+        wrapper.getChannel().write(ByteBuffer.wrap(buffer),getWriteTimeOut(),TimeUnit.MILLISECONDS,channel,guarder);
+        return guarder;
+    }
+
+    public int getWriteTimeOut() {
+        return writeTimeOut;
+    }
+
+    public void write(Channel channel, byte[] buffer, int off, int length, Consumer<Integer> onComplete, Consumer<Throwable> onFailure) {
+        AsynchronousSocketChannelWrapper wrapper = getWrapper(channel);
+        WriteGuarder guarder = new WriteGuarder();
+        guarder.setOnSuccess(onComplete);
+        guarder.setOnFailed(onFailure);
+        wrapper.getChannel().write(ByteBuffer.wrap(buffer), getWriteTimeOut(), TimeUnit.MILLISECONDS, channel, guarder);
+    }
+
 
     private class ReadCompletionHandler implements CompletionHandler<Integer, Channel> {
 
@@ -347,6 +368,7 @@ public class SocketConnectionManager implements Runnable {
         private volatile ByteBuffer currentReadBuffer;
         private ReadGuarder currentReadTask;
         private volatile long connectStartTime;
+        private long writeCount=0;
 
         AsynchronousSocketChannelWrapper(AsynchronousSocketChannel channel) {
             this.channel = channel;
@@ -540,6 +562,16 @@ public class SocketConnectionManager implements Runnable {
         public void setConnectStartTime(long connectStartTime) {
             this.connectStartTime = connectStartTime;
         }
+
+        public void updateWriteCount(Integer result) {
+            synchronized (this) {
+                writeCount += result;
+            }
+        }
+
+        public long getWriteCount() {
+            return writeCount;
+        }
     }
 
     class ReadGuarder {
@@ -606,13 +638,17 @@ public class SocketConnectionManager implements Runnable {
         }
 
         public boolean isFinished(long timeout) {
-            try {
-                synchronized (this) {
-                    this.wait(timeout);
+            if (!finished) {
+                try {
+                    synchronized (this) {
+                        this.wait(timeout);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    return finished;
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } finally {
+            }else{
                 return finished;
             }
         }
@@ -718,6 +754,76 @@ public class SocketConnectionManager implements Runnable {
         TaskType(int value) {
 
             this.value = value;
+        }
+    }
+
+    public class WriteGuarder implements CompletionHandler<Integer, Channel> {
+        private volatile boolean writeFailed=false;
+        private volatile Throwable writeException;
+        private volatile boolean finished=false;
+        private Consumer<Integer> onSuccess;
+        private Consumer<Throwable> onFailed;
+
+
+        public boolean isFinished(int timeout) {
+            if (!finished) {
+                try {
+                    synchronized (this) {
+                        this.wait(timeout);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    return finished;
+                }
+            }else{
+                return finished;
+            }
+        }
+        public boolean isFinished(){
+            return finished;
+        }
+        public boolean isWriteFailed() {
+            return writeFailed;
+        }
+
+        public Throwable getWriteException() {
+            return writeException;
+        }
+
+        @Override
+        public void completed(Integer result, Channel attachment) {
+            AsynchronousSocketChannelWrapper wrapper=channelWrapperMapping.get(attachment);
+            wrapper.updateWriteCount(result);
+            writeFailed=false;
+            finished=true;
+            synchronized (this) {
+                this.notifyAll();
+            }
+            if(this.onSuccess!=null){
+                this.onSuccess.accept(result);
+            }
+        }
+
+        @Override
+        public void failed(Throwable exc, Channel attachment) {
+            writeFailed=true;
+            finished=true;
+            writeException=exc;
+            synchronized (this) {
+                this.notifyAll();
+            }
+            if(this.onFailed!=null){
+               this.onFailed.accept(exc);
+            }
+        }
+
+        public void setOnSuccess(Consumer<Integer> onSuccess) {
+            this.onSuccess = onSuccess;
+        }
+
+        public void setOnFailed(Consumer<Throwable> onFailed) {
+            this.onFailed = onFailed;
         }
     }
 }

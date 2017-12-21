@@ -3,6 +3,7 @@ package io.async;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -34,12 +35,14 @@ public class SocketConnectionManagerTest {
         mgr.start();
         Channel channel = mgr.connect("localhost", 8088);
         for (int i = 0; i < 10000; i++) {
+            channel.write((i+"hello world!").getBytes());
             assertEquals('a', channel.read());
             byte[] arr = new byte["\nhello world\n".length()];
             assertEquals("\nhello world\n".length(), channel.read(arr, 0, arr.length));
             assertArrayEquals("\nhello world\n".getBytes(), Arrays.copyOfRange(arr, 0, arr.length));
         }
         assertEquals(-1, channel.read());
+
     }
 
     @Test
@@ -56,9 +59,29 @@ public class SocketConnectionManagerTest {
         ServerTask task = new ServerTask();
         task.setServer(server);
         task.setTaskCount(0);
+
         server.accept(task, new CompletionHandler<AsynchronousSocketChannel, ServerTask>() {
             @Override
             public void completed(AsynchronousSocketChannel result, ServerTask attachment) {
+                ByteBuffer buffer=ByteBuffer.allocate(1024);
+                Future<Integer> rs=result.read(buffer);
+                try {
+                    int cnt=rs.get(100,TimeUnit.MILLISECONDS);
+                    assertEquals("hello world!",new String(buffer.array(),0,cnt));
+                }  catch (Throwable e){
+                    for(Thread t:Thread.getAllStackTraces().keySet()){
+                        t.interrupt();
+                    }
+                    try {
+                        throw e;
+                    } catch (InterruptedException e1) {
+                        e1.printStackTrace();
+                    } catch (ExecutionException e1) {
+                        e1.printStackTrace();
+                    } catch (TimeoutException e1) {
+                        e1.printStackTrace();
+                    }
+                }
                 ServerTask task = new ServerTask();
                 task.setServer(attachment.getServer());
                 task.setTaskCount(attachment.getTaskCount() + 1);
@@ -77,7 +100,7 @@ public class SocketConnectionManagerTest {
             }
         });
         ArrayList<AsynchronousTestTask> tasks = new ArrayList<>();
-        for (int i = 0; i < 10000; i++) {
+        for (int i = 0; i < 1000; i++) {
             if (Thread.currentThread().isInterrupted()) {
                 break;
             }
@@ -91,7 +114,7 @@ public class SocketConnectionManagerTest {
         }
         System.out.println("task publish complete");
         int current_count = 0;
-        while (count.taskCount < 10000) {
+        while (count.taskCount < 1000) {
             if(Thread.currentThread().isInterrupted()){
                 break;
             }
@@ -154,8 +177,22 @@ public class SocketConnectionManagerTest {
                 try {
                     ss = new ServerSocket(port);
                     Socket socket = ss.accept();
+                    InputStream is=socket.getInputStream();
                     OutputStream os = socket.getOutputStream();
                     for (int i = 0; i < 10000; i++) {
+                        if(Thread.currentThread().isInterrupted()){
+                            break;
+                        }
+                        byte[] b=new byte[(i+"hello world!").length()];
+                        is.read(b);
+                        try {
+                            assertArrayEquals((i+"hello world!").getBytes(),b);
+                        } catch (Exception e) {
+                            for(Thread th:Thread.getAllStackTraces().keySet()){
+                                th.interrupt();
+                            }
+                            throw e;
+                        }
                         os.write('a');
                         os.flush();
                         os.write('\n');
@@ -312,6 +349,7 @@ public class SocketConnectionManagerTest {
             try {
                 mgr.connect("localhost", 8088, (Channel ch) -> {
                     try {
+                        ch.write("hello world!".getBytes());
                         readLoopBody(ch, 0);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
