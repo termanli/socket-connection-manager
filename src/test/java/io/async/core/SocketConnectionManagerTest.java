@@ -1,5 +1,7 @@
-package io.async;
+package io.async.core;
 
+import io.async.core.Channel;
+import io.async.core.SocketConnectionManager;
 import org.junit.Test;
 
 import java.io.IOException;

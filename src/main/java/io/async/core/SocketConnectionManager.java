@@ -1,4 +1,4 @@
-package io.async;
+package io.async.core;
 
 import org.javatuples.Pair;
 
@@ -16,7 +16,6 @@ import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.IntConsumer;
 
 /**

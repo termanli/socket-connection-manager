@@ -1,7 +1,6 @@
-package io.async;
+package io.async.core;
 
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.IntConsumer;
 
 /**

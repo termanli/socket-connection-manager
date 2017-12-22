@@ -1,4 +1,4 @@
-package io.async;
+package io.async.core;
 
 /**
  * Created by j19li on 2017/11/27.
