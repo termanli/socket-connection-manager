@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 sed -i -e 's/${username}/'$CJ_USERNAME'/' setting.xml
 sed -i -e 's/${password}/'$CJ_PASSWORD'/' setting.xml
-sed -i 's/DYNAMIC-SNAPSHOT/'$TRAVIS_JOB_NUMBER'/' pom.xml
+sed -i 's/DYNAMIC-SNAPSHOT/'${TRAVIS_JOB_NUMBER%.*}'/' pom.xml
 mvn cobertura:cobertura
 if [ $? -eq 0 ]
 then

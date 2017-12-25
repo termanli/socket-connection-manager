@@ -6,7 +6,7 @@
 
     <groupId>io.async</groupId>
     <artifactId>socket-connection-manager</artifactId>
-    <version>1.0.0.DYNAMIC-SNAPSHOT</version>
+    <version>1.1.DYNAMIC-SNAPSHOT</version>
     <dependencies>
         <dependency>
             <groupId>junit</groupId>
