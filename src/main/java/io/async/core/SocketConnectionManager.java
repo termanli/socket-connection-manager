@@ -597,7 +597,7 @@ public class SocketConnectionManager implements Runnable {
             synchronized (this) {
                 System.arraycopy(src, off, dest, position, len);
                 position += len;
-                if (position == length) {
+                if (position == length+this.off) {
                     finished = true;
                 }
                 readCount += len;

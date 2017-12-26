@@ -133,6 +133,7 @@ public class SocketConnectionManagerTest {
                 }
             }
         }
+        System.out.println("Test tasks finished");
         server.close();
         boolean failed=false;
         for (AsynchronousTestTask t : tasks) {
@@ -230,8 +231,8 @@ public class SocketConnectionManagerTest {
                 e.printStackTrace();
                 testTask.processAssertionErrors(e);
             }
-            byte[] arr = new byte["\nhello world\n".length()];
-            channel.read(arr, 0, arr.length, (int i) -> {
+            byte[] arr = new byte["\nhello world\n".length()+2];
+            channel.read(arr, 2, arr.length-2, (int i) -> {
                 synchronized (lock) {
                     lock.notifyAll();
                 }
@@ -242,7 +243,7 @@ public class SocketConnectionManagerTest {
                     testTask.processAssertionErrors(e);
                 }
                 try {
-                    assertArrayEquals("Actual result is:" + new String(arr) + ";", "\nhello world\n".getBytes(), Arrays.copyOfRange(arr, 0, arr.length));
+                    assertArrayEquals("Actual result is:" + new String(arr,2,arr.length-2) + ";", "\nhello world\n".getBytes(), Arrays.copyOfRange(arr, 2, arr.length));
                 } catch (Throwable arrayComparisonFailure) {
                     arrayComparisonFailure.printStackTrace();
                     testTask.processAssertionErrors(arrayComparisonFailure);

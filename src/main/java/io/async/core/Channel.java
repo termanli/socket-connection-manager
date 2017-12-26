@@ -37,6 +37,9 @@ public class Channel {
     }
 
     public int read(byte[] buffer, int pos, int maxLength) {
+        if(pos<0||maxLength<0||pos+maxLength>buffer.length){
+            throw new ArrayIndexOutOfBoundsException(String.format("Illegal read options, buffer length:%s, start position:%s, read length:%s",buffer.length,pos,maxLength));
+        }
         SocketConnectionManager.ReadGuarder guarder = scm.read(this, buffer, pos, maxLength);
         if (guarder.isFinished(scm.getReadTimeOut() * 10)) {
             if (!guarder.isReadFailed()) {
@@ -50,6 +53,9 @@ public class Channel {
     }
 
     public void read(byte[] buffer, int pos, int maxLength, IntConsumer onComplete, Consumer<Throwable> onFailure) {
+        if(pos<0||maxLength<0||pos+maxLength>buffer.length){
+            throw new ArrayIndexOutOfBoundsException(String.format("Illegal read options, buffer length:%s, start position:%s, read length:%s",buffer.length,pos,maxLength));
+        }
         scm.read(this, buffer, pos, maxLength, onComplete, onFailure);
     }
 
