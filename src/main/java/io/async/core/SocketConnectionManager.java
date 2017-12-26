@@ -30,6 +30,7 @@ public class SocketConnectionManager implements Runnable {
         put("READ_TASK_QUEUE_SIZE", Integer.toString(1024));
         put("CONCURRENT_CONNECTION_COUNT", Integer.toString(100));
         put("CONNECTION_QUEUE_SIZE", Integer.toString(1000000));
+        put("READ_TIMEOUT", Long.toString(1000));
     }};
     private final AsynchronousChannelGroup channelGroup;
     private final ExecutorService callBackThreadPool;
@@ -78,8 +79,13 @@ public class SocketConnectionManager implements Runnable {
                     break;
                 case "CONCURRENT_CONNECTION_COUNT":
                     this.concurrentConnectionCount = Integer.parseInt(value);
+                    break;
                 case "CONNECTION_QUEUE_SIZE":
                     this.connectionQueueSize=Integer.parseInt(value);
+                    break;
+                case "WRITE_TIMEOUT":
+                    this.writeTimeOut=Integer.parseInt(value);
+                    break;
             }
         }
         this.connectionQueue= new LinkedBlockingDeque<>(this.connectionQueueSize);
