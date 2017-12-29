@@ -282,7 +282,7 @@ public class SocketConnectionManager {
     public WriteGuarder write(Channel channel, byte[] buffer, int off, int length) {
         AsynchronousSocketChannelWrapper wrapper=getWrapper(channel);
         WriteGuarder guarder=new WriteGuarder();
-        wrapper.getChannel().write(ByteBuffer.wrap(buffer),getWriteTimeOut(),TimeUnit.MILLISECONDS,channel,guarder);
+        wrapper.getChannel().write(ByteBuffer.wrap(buffer,off,length),getWriteTimeOut(),TimeUnit.MILLISECONDS,channel,guarder);
         return guarder;
     }
 
@@ -295,7 +295,7 @@ public class SocketConnectionManager {
         WriteGuarder guarder = new WriteGuarder();
         guarder.setOnSuccess(onComplete);
         guarder.setOnFailed(onFailure);
-        wrapper.getChannel().write(ByteBuffer.wrap(buffer), getWriteTimeOut(), TimeUnit.MILLISECONDS, channel, guarder);
+        wrapper.getChannel().write(ByteBuffer.wrap(buffer,off,length), getWriteTimeOut(), TimeUnit.MILLISECONDS, channel, guarder);
     }
 
     public void printConnectionQueue() {
