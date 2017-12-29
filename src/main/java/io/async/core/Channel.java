@@ -75,7 +75,7 @@ public class Channel {
         SocketConnectionManager.WriteGuarder guarder =scm.write(this,buffer,off,length);
         if(guarder.isFinished(scm.getWriteTimeOut()*10)){
             if (guarder.isWriteFailed()) {
-                throw new AsyncIOException("Read Failed", guarder.getWriteException());
+                throw new AsyncIOException("Write Failed", guarder.getWriteException());
             }
         }else{
             throw new AsyncIOException("write timeout");

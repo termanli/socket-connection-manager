@@ -21,7 +21,7 @@ import java.util.function.IntConsumer;
 /**
  * Created by j19li on 2017/11/27.
  */
-public class SocketConnectionManager implements Runnable {
+public class SocketConnectionManager {
     private static final Properties defaultConfig = new Properties() {{
         put("CONNECTION_TIMEOUT", Long.toString(1000));
         put("READ_TIMEOUT", Long.toString(1000));
@@ -34,26 +34,23 @@ public class SocketConnectionManager implements Runnable {
     }};
     private final AsynchronousChannelGroup channelGroup;
     private final ExecutorService callBackThreadPool;
-    private final ExecutorService ioThreadPool;
     private int connectionQueueSize;
     private Map<Channel, AsynchronousSocketChannelWrapper> channelWrapperMapping = new ConcurrentHashMap<>();
     private LinkedBlockingDeque<Pair<BiConsumer<Channel, AsynchronousSocketChannelWrapper>,Consumer<Throwable>>> connectionQueue;
-    /*private LinkedBlockingDeque<Channel> channels = new LinkedBlockingDeque();*/
     private long connectTimeout;
     private long readTimeOut;
     private int readBufferCapacity;
     private int readQueueSize;
     private int readTaskQueueSize;
     private int concurrentConnectionCount;
-    private Thread thread;
     private int writeTimeOut;
+    private int connectionCount=0;
 
     public SocketConnectionManager(ExecutorService ioThreadPool, ExecutorService callBackThreadPool) throws IOException {
         this(ioThreadPool, callBackThreadPool, new Properties());
     }
 
     public SocketConnectionManager(ExecutorService ioThreadPool, ExecutorService callBackThreadPool, Properties config) throws IOException {
-        this.ioThreadPool = ioThreadPool;
         this.channelGroup = AsynchronousChannelGroup.withThreadPool(ioThreadPool);
         this.callBackThreadPool = callBackThreadPool;
         Properties props = new Properties();
@@ -91,19 +88,6 @@ public class SocketConnectionManager implements Runnable {
         this.connectionQueue= new LinkedBlockingDeque<>(this.connectionQueueSize);
     }
 
-    public void start() {
-        if (thread == null) {
-            thread = new Thread(this);
-            thread.start();
-        }
-    }
-
-    public void stop() {
-        if (thread != null) {
-            thread.interrupt();
-        }
-    }
-
     public long getReadTimeOut() {
         return readTimeOut;
     }
@@ -123,11 +107,14 @@ public class SocketConnectionManager implements Runnable {
     public int getReadTaskQueueSize() {
         return readTaskQueueSize;
     }
+    public int getOpenChannelCount(){
+        return channelWrapperMapping.size();
+    }
 
     public Channel connect(String host, int port) {
         try {
             Channel channel = new Channel(this);
-            AsynchronousSocketChannel ch = AsynchronousSocketChannel.open();
+            AsynchronousSocketChannel ch = AsynchronousSocketChannel.open(channelGroup);
             AsynchronousSocketChannelWrapper wrapper = new AsynchronousSocketChannelWrapper(ch);
             putWrapper(channel, wrapper);
             doConnect(host, port, channel, ch);
@@ -149,16 +136,14 @@ public class SocketConnectionManager implements Runnable {
     }
 
     private void putWrapper(Channel channel, AsynchronousSocketChannelWrapper wrapper) {
-        /*HashMap<Channel, AsynchronousSocketChannelWrapper> m=new HashMap<>(channelWrapperMapping);
-        m.put(channel, wrapper);
-        channelWrapperMapping=m;*/
         channelWrapperMapping.put(channel, wrapper);
 
     }
 
     public void connect(String host, int port, Consumer<Channel> onSuccess, Consumer<Throwable> onFail) {
+        boolean couldConnect = requestConnection();
         try {
-            if (channelWrapperMapping.size() >= concurrentConnectionCount) {
+            if (!couldConnect) {
                 BiConsumer<Channel, AsynchronousSocketChannelWrapper> s=(Channel ch,AsynchronousSocketChannelWrapper wrapper)->{
                     wrapper.setOnConnectFailConsumer(onFail);
                     wrapper.setOnConnectSuccessConsumer(onSuccess);
@@ -173,7 +158,7 @@ public class SocketConnectionManager implements Runnable {
                 }
             } else {
                 Channel channel = new Channel(this);
-                AsynchronousSocketChannel ch = AsynchronousSocketChannel.open();
+                AsynchronousSocketChannel ch = AsynchronousSocketChannel.open(channelGroup);
                 AsynchronousSocketChannelWrapper wrapper = new AsynchronousSocketChannelWrapper(ch);
                 wrapper.setOnConnectFailConsumer(onFail);
                 wrapper.setOnConnectSuccessConsumer(onSuccess);
@@ -185,6 +170,21 @@ public class SocketConnectionManager implements Runnable {
         }
     }
 
+    private boolean requestConnection() {
+        boolean couldConnect=false;
+        synchronized (this){
+            if(connectionCount<concurrentConnectionCount){
+                connectionCount++;
+                couldConnect=true;
+            }
+        }
+        return couldConnect;
+    }
+    private void releaseConnection(){
+        synchronized (this){
+            connectionCount--;
+        }
+    }
     private void doConnect(String host, int port, Channel channel, AsynchronousSocketChannel ch) {
         try {
             AsynchronousSocketChannelWrapper wrapper = getWrapper(channel);
@@ -197,18 +197,17 @@ public class SocketConnectionManager implements Runnable {
 
                     AsynchronousSocketChannelWrapper wrapper = getWrapper(attachment);
                     if (wrapper != null) {
-                        /*channels.offer(attachment);*/
                         wrapper.connectSuccess();
                         if (wrapper.getOnConnectSuccessConsumer() != null) {
                             wrapper.getOnConnectSuccessConsumer().accept(attachment);
                         }
-                        wrapper.read(attachment);
                     }
                 }
 
                 @Override
                 public void failed(Throwable exc, Channel attachment) {
                     AsynchronousSocketChannelWrapper wrapper = getWrapper(attachment);
+                    disconnect(attachment);
                     if (wrapper != null) {
                         wrapper.connectFailed(exc);
                         if (wrapper.getOnConnectFailConsumer() != null) {
@@ -222,87 +221,62 @@ public class SocketConnectionManager implements Runnable {
         }
     }
 
+    private void runQueuedConnectionTask() {
+        if(requestConnection()){
+            Pair<BiConsumer<Channel, AsynchronousSocketChannelWrapper>,Consumer<Throwable>> task=connectionQueue.poll();
+            if(task!=null){
+                Channel channel = createChannel();
+                try {
+                    AsynchronousSocketChannel ch=AsynchronousSocketChannel.open(channelGroup);
+                    AsynchronousSocketChannelWrapper wr = new AsynchronousSocketChannelWrapper(ch);
+                    task.getValue0().accept(channel,wr);
+                } catch (IOException e) {
+                    task.getValue1().accept(e);
+                }
+            }
+        }
+    }
+
+    private Channel createChannel(){
+        return new Channel(this);
+    }
     void disconnect(Channel channel) {
         AsynchronousSocketChannelWrapper wrapper = getWrapper(channel);
         if (wrapper != null) {
             try {
                 wrapper.getChannel().close();
-            } catch (IOException e) {
-                throw new AsyncIOException("Failed to close channel", e);
+            } catch (Exception e) {
+                throw new AsyncIOException("Channel close failed",e);
             } finally {
-                /*HashMap<Channel, AsynchronousSocketChannelWrapper> m=new HashMap<>(channelWrapperMapping);
-                m.remove(channel);
-                channelWrapperMapping=m;*/
                 channelWrapperMapping.remove(channel);
-            }
-        }
-    }
-
-    @Override
-    public void run() {
-        while (true) {
-            if (Thread.currentThread().isInterrupted()) {
-                break;
-            }
-            while (channelWrapperMapping.size()<concurrentConnectionCount){
-                Pair<BiConsumer<Channel, AsynchronousSocketChannelWrapper>,Consumer<Throwable>> task=connectionQueue.poll();
-                if(task==null){
-                    break;
-                }else{
-                    Channel channel = new Channel(this);
-                    try {
-                        AsynchronousSocketChannel ch=AsynchronousSocketChannel.open();
-                        AsynchronousSocketChannelWrapper wrapper = new AsynchronousSocketChannelWrapper(ch);
-                        task.getValue0().accept(channel,wrapper);
-                    } catch (IOException e) {
-                        task.getValue1().accept(e);
-                    }
-                }
-            }
-            for (Channel channel : channelWrapperMapping.keySet()) {
-                if (channel != null) {
-                    if (Thread.currentThread().isInterrupted()) {
-                        break;
-                    }
-                    AsynchronousSocketChannelWrapper wrapper = getWrapper(channel);
-                    if (wrapper != null) {
-                        ReadTask task = new ReadTask();
-                        task.setChannel(channel);
-                        if (wrapper.isConnectSuccess()) {
-                            callBackThreadPool.submit(task);
-                        } else {
-                            if (System.currentTimeMillis() - wrapper.getConnectStartTime() > connectTimeout) {
-                                if (wrapper.getOnConnectFailConsumer() != null) {
-                                    disconnect(channel);
-                                    wrapper.getOnConnectFailConsumer().accept(new AsyncIOException("Connection Timeout"));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            try {
-                Thread.sleep(1);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                releaseConnection();
+                runQueuedConnectionTask();
             }
         }
     }
 
     private AsynchronousSocketChannelWrapper getWrapper(Channel channel) {
-        /*synchronized (channelWrapperMapping) {*/
         return channelWrapperMapping.get(channel);
-        /*}*/
     }
 
     public ReadGuarder read(Channel channel, byte[] result, int off, int length) {
         AsynchronousSocketChannelWrapper wrapper = getWrapper(channel);
-        return wrapper.commitRead(result, off, length);
+        ReadGuarder guarder= wrapper.commitRead(result, off, length);
+        commitReadTask(channel);
+        return guarder;
+    }
+
+    private void commitReadTask(Channel channel) {
+        ReadTask task=new ReadTask();
+        task.setChannel(channel);
+        callBackThreadPool.submit(task);
     }
 
     public ReadGuarder read(Channel channel, byte[] result, int off, int length, IntConsumer onSuccess, Consumer<Throwable> onFail) {
         AsynchronousSocketChannelWrapper wrapper = getWrapper(channel);
-        return wrapper.commitRead(result, off, length, onSuccess, onFail);
+        ReadGuarder guarder= wrapper.commitRead(result, off, length, onSuccess, onFail);
+        commitReadTask(channel);
+        return guarder;
     }
 
     public WriteGuarder write(Channel channel, byte[] buffer, int off, int length) {
@@ -324,6 +298,10 @@ public class SocketConnectionManager implements Runnable {
         wrapper.getChannel().write(ByteBuffer.wrap(buffer), getWriteTimeOut(), TimeUnit.MILLISECONDS, channel, guarder);
     }
 
+    public void printConnectionQueue() {
+        System.out.println(connectionQueue);
+    }
+
 
     private class ReadCompletionHandler implements CompletionHandler<Integer, Channel> {
 
@@ -335,10 +313,10 @@ public class SocketConnectionManager implements Runnable {
                     if (result > 0) {
                         wrapper.refreshBuffer();
                     }
-                    wrapper.read(attachment);
                 } else {
                     wrapper.setReadEOF();
                 }
+                commitReadTask(attachment);
             }
         }
 
@@ -360,21 +338,20 @@ public class SocketConnectionManager implements Runnable {
         private volatile Throwable connectException;
         private Consumer<Channel> onConnectSuccessConsumer;
         private Consumer<Throwable> onConnectFailConsumer;
-        private boolean readEOF = false;
+        private volatile boolean readEOF = false;
         private ByteBuffer buffer = ByteBuffer.allocate(readBufferCapacity);
         private ReadCompletionHandler readCompletionHandler = new ReadCompletionHandler();
         private volatile boolean readFailed = false;
         private volatile Throwable readException;
         private LinkedBlockingDeque<ByteBuffer> readQueue = new LinkedBlockingDeque(readQueueSize);
         private volatile ByteBuffer tmpBuff;
-        private volatile boolean readBreakOnQueueFull = false;
         private volatile long readCount = 0;
         private LinkedBlockingDeque<ReadGuarder> readTaskQueue = new LinkedBlockingDeque(readTaskQueueSize);
         private volatile ByteBuffer currentReadBuffer;
-        private ReadGuarder currentReadTask;
+        private volatile ReadGuarder currentReadTask;
         private volatile long connectStartTime;
-        private long writeCount=0;
-
+        private volatile long writeCount=0;
+        private boolean readTaskRunning =false;
         AsynchronousSocketChannelWrapper(AsynchronousSocketChannel channel) {
             this.channel = channel;
         }
@@ -441,7 +418,7 @@ public class SocketConnectionManager implements Runnable {
 
         void read(Channel ch) {
             if (!readFailed) {
-                if (!isReadEOF() && !readBreakOnQueueFull) {
+                if (!isReadEOF()) {
                     synchronized (buffer) {
                         channel.read(buffer, readTimeOut, TimeUnit.MILLISECONDS, ch, readCompletionHandler);
                     }
@@ -450,27 +427,20 @@ public class SocketConnectionManager implements Runnable {
         }
 
         boolean refreshBuffer() {
-            if (readQueue.remainingCapacity() > 0) {
-                byte[] ba = null;
-                synchronized (buffer) {
-                    ba = new byte[buffer.position()];
-                    System.arraycopy(buffer.array(), 0, ba, 0, ba.length);
-                    buffer.position(0);
-                }
-                tmpBuff = ByteBuffer.wrap(ba);
-                boolean rs = readQueue.offer(ByteBuffer.wrap(ba));
-                if (!rs) {
-                    readBreakOnQueueFull = true;
-                } else {
-                    readBreakOnQueueFull = false;
-                    tmpBuff = null;
-                    updateReadCount(ba.length);
-                }
-                return rs;
-            } else {
-                readBreakOnQueueFull = true;
-                return false;
+            byte[] ba = null;
+            synchronized (buffer) {
+                ba = new byte[buffer.position()];
+                System.arraycopy(buffer.array(), 0, ba, 0, ba.length);
+                buffer.position(0);
             }
+            tmpBuff = ByteBuffer.wrap(ba);
+            boolean rs = readQueue.offer(ByteBuffer.wrap(ba));
+            if (rs) {
+                tmpBuff = null;
+                updateReadCount(ba.length);
+            }
+            return rs;
+
         }
 
         void updateReadCount(Integer result) {
@@ -492,6 +462,9 @@ public class SocketConnectionManager implements Runnable {
         }
 
         ReadGuarder commitRead(byte[] result, int off, int length) {
+            if(readEOF&&(currentReadBuffer==null||(!currentReadBuffer.hasRemaining()))){
+                throw new AsyncIOException("Have nothing to read!");
+            }
             ReadGuarder guarder = new ReadGuarder(result, off, length);
             if (!readTaskQueue.offer(guarder)) {
                 throw new AsyncIOException("Read task queue full");
@@ -500,6 +473,9 @@ public class SocketConnectionManager implements Runnable {
         }
 
         ReadGuarder commitRead(byte[] result, int off, int length, IntConsumer onSuccess, Consumer<Throwable> onFail) {
+            if(readEOF&&(currentReadBuffer==null||(!currentReadBuffer.hasRemaining()))){
+                throw new AsyncIOException("Have nothing to read!");
+            }
             ReadGuarder guarder = new ReadGuarder(result, off, length);
             guarder.setOnSuccess(onSuccess);
             guarder.setOnFail(onFail);
@@ -510,11 +486,17 @@ public class SocketConnectionManager implements Runnable {
         }
 
         void runReadTask(Channel ch) {
-            if (currentReadTask == null) {
-                currentReadTask = readTaskQueue.poll();
+            synchronized (this) {
+                if (readTaskRunning) {
+                    return;
+                }
+                readTaskRunning = true;
             }
-            if (currentReadTask != null) {
-                while (currentReadTask.remaining() > 0) {
+            try {
+                if (currentReadTask == null||currentReadTask.remaining()<=0) {
+                    currentReadTask = readTaskQueue.poll();
+                }
+                while (currentReadTask != null && currentReadTask.remaining() > 0) {
                     if (this.currentReadBuffer == null || (!this.currentReadBuffer.hasRemaining())) {
                         this.currentReadBuffer = readQueue.poll();
                     }
@@ -524,9 +506,13 @@ public class SocketConnectionManager implements Runnable {
                                 currentReadTask.setReadCount(-1);
                             }
                             currentReadTask.finish();
-                        }
-                        if (readFailed) {
+                        } else if (readFailed) {
                             currentReadTask.finish(readException);
+                        } else {
+                            synchronized (this) {
+                                readTaskRunning = false;
+                            }
+                            read(ch);
                         }
                         break;
                     }
@@ -534,15 +520,16 @@ public class SocketConnectionManager implements Runnable {
                     byte[] _b = new byte[_l];
                     this.currentReadBuffer.get(_b, 0, _l);
                     currentReadTask.offer(_b, 0, _l);
+                    if (currentReadTask.remaining()<=0) {
+                        currentReadTask = readTaskQueue.poll();
+                    }
                 }
-                if (currentReadTask.isFinished()) {
-                    currentReadTask = readTaskQueue.poll();
+            } finally {
+                synchronized (this) {
+                    readTaskRunning = false;
                 }
-            }
-
-            if (this.readBreakOnQueueFull) {
-                if (this.refreshBuffer() && (!this.readFailed)) {
-                    this.read(ch);
+                if(readTaskQueue.size()>0){
+                    runReadTask(ch);
                 }
             }
         }
@@ -584,7 +571,7 @@ public class SocketConnectionManager implements Runnable {
         private final byte[] dest;
         private final int off;
         private final int length;
-        private volatile boolean finished = false;
+        private boolean finished = false;
         private volatile int position;
         private volatile int readCount = 0;
         private volatile boolean readFailed;
@@ -603,7 +590,7 @@ public class SocketConnectionManager implements Runnable {
             synchronized (this) {
                 System.arraycopy(src, off, dest, position, len);
                 position += len;
-                if (position == length+this.off) {
+                if (position >= length+this.off) {
                     finished = true;
                 }
                 readCount += len;
@@ -675,7 +662,9 @@ public class SocketConnectionManager implements Runnable {
         }
 
         void finish() {
-            finished = true;
+            synchronized (this) {
+                finished = true;
+            }
             onFinished();
         }
 
